@@ -1,17 +1,19 @@
-import sys
-import importlib
 import os
+import sys
+import shutil
 
-# 🔥 FORCE correct OpenCV binding (FINAL FIX)
-if "cv2" in sys.modules:
-    del sys.modules["cv2"]
+# 🔥 FINAL FIX: remove broken OpenCV (installed by deepface)
+for path in sys.path:
+    if "site-packages" in path:
+        cv2_path = os.path.join(path, "cv2")
+        if os.path.exists(cv2_path):
+            try:
+                shutil.rmtree(cv2_path)
+            except:
+                pass
 
-os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
-
-# now import safely
+# ✅ safe imports
 import cv2
-
-# rest imports
 import streamlit as st
 import time
 import numpy as np
@@ -29,7 +31,7 @@ from googleapiclient.discovery import build
 
 from PIL import Image
 
-# safe import for cloud
+# safe for cloud
 try:
     import pyautogui
 except:
