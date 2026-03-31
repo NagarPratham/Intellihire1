@@ -273,24 +273,6 @@ def detect_stress(image):
     except Exception as e:
         return {"timestamp": int(time.time()), "emotion": "unknown", "stress_level": "Unknown", "stress_value": 0, "error": str(e)}, None
 
-def capture_and_analyze_stress():
-    # ❌ Cloud doesn't support screenshots
-    if pyautogui is None:
-        st.warning("Using fallback image (no screen access in cloud)")
-
-        # Create dummy image (black frame)
-        dummy_image = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        # Run stress detection on dummy frame
-        analysis, processed_image = detect_stress(dummy_image)
-
-    else:
-        screenshot = pyautogui.screenshot()
-        screenshot = np.array(screenshot)
-        screenshot_rgb = cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB)
-
-        analysis, processed_image = detect_stress(screenshot_rgb)
-
     # Encode image safely
     if processed_image is not None:
         _, buffer = cv2.imencode('.jpg', processed_image)
@@ -549,110 +531,99 @@ if st.session_state["page"] == "main":
     else:
         st.warning("Please enter a valid Digital Samba meeting room link to start the video interview.")
     
-    # Stress Level Detection
-    st.subheader("Automated Stress Level Detection")
+# Stress Level Detection
+st.subheader("Automated Stress Level Detection")
 
-    # Button to start analysis
-    if st.button("Start Automated Stress Level Analysis"):
-        if "current_profile" not in st.session_state:
-            st.warning("Please select a candidate first.")
-        else:
-            # Setup
-            st.write("Starting automated stress level analysis...")
-            st.session_state["recording_in_progress"] = True
-            st.session_state["emotion_data"] = []
-            
-            # Create a progress bar
-            progress_bar = st.progress(0)
-            
-            # Create a container for the stop button
-            stop_container = st.container()
-            stop_button_pressed = stop_container.button("Stop Analysis")
-            
-            # Create a container for all analysis results
-            analysis_container = st.container()
-            
-            # Number of samples to take
-            num_samples = 5
-            
-            try:
-                for i in range(num_samples):
-                    # Check if stop button was pressed
-                    if stop_button_pressed or not st.session_state.get("recording_in_progress", True):
-                        st.warning("Analysis stopped by user")
-                        break
-                        
-                    # Update progress
-                    progress_bar.progress((i + 1) / num_samples)
-                    
-                    # Capture and analyze
-                    analysis = capture_and_analyze_stress()
-                    
-                    # Store data
-                    if analysis.get("emotion") != "Error":
-                        st.session_state["emotion_data"].append(analysis)
-                        
-                        # Display current result in the container
-                        with analysis_container:
-                            # Create a new row for each analysis
-                            cols = st.columns([2, 3])
-                            
-                            # Column 1: Display image
-                            with cols[0]:
-                                if "image" in analysis:
-                                    try:
-                                        image_data = base64.b64decode(analysis["image"])
-                                        image_array = np.frombuffer(image_data, np.uint8)
-                                        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-                                        if image is not None:
-                                            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                                            # FIXED LINE - replaced use_column_width with use_container_width
-                                            st.image(image, caption=f"Analysis {i+1}", use_container_width=True)
-                                        else:
-                                            st.warning("Could not decode image")
-                                    except Exception as e:
-                                        st.error(f"Error displaying image: {str(e)}")
-                                else:
-                                    st.warning("No image captured")
-                            
-                            # Column 2: Display analysis data
-                            with cols[1]:
-                                st.write(f"### Analysis {i+1}")
-                                st.write(f"**Emotion:** {analysis['emotion']}")
-                                st.write(f"**Stress:** {analysis['stress_level']}")
-                                
-                                # Show appropriate message based on stress level
-                                if analysis['stress_level'] == "High":
-                                    st.error("High stress")
-                                elif analysis['stress_level'] == "Medium":
-                                    st.warning("Medium stress")
-                                else:
-                                    st.success("Relaxed")
-                    
-                        # Save to Firebase
-                        try:
-                            selected_name = st.session_state["current_profile"]["name"]
-                            db.collection("stress_analysis").document(selected_name).collection("timeline").document(str(analysis["timestamp"])).set(analysis)
-                        except Exception as e:
-                            st.error(f"Failed to save to database: {str(e)}")
-                    
-                    else:
-                        with analysis_container:
-                            st.error(f"Capture {i+1} failed: {analysis.get('error', 'Unknown error')}")
-                    
-                    # Wait before next capture
-                    time.sleep(3)  # Reduced from 10 seconds for better user experience
-                
-                if i == num_samples - 1:  # Successfully completed all samples
-                    st.success("Analysis complete! Go to Video Analysis page to view detailed results.")
-                    
-            except Exception as e:
-                st.error(f"Error during analysis: {str(e)}")
-            finally:
-                # Reset recording flag
-                st.session_state["recording_in_progress"] = False
-                # Clear progress bar
-                progress_bar.empty()
+# ✅ Camera input (WORKS ON CLOUD)
+camera_image = st.camera_input("Capture candidate face")
+
+# Button to start analysis
+if st.button("Start Automated Stress Level Analysis"):
+    if "current_profile" not in st.session_state:
+        st.warning("Please select a candidate first.")
+    elif camera_image is None:
+        st.warning("Please capture an image first.")
+    else:
+        st.write("Starting stress analysis...")
+
+        # Reset session
+        st.session_state["emotion_data"] = []
+
+        # Progress bar
+        progress_bar = st.progress(0)
+
+        # Container
+        analysis_container = st.container()
+
+        num_samples = 5
+
+        try:
+            for i in range(num_samples):
+                progress_bar.progress((i + 1) / num_samples)
+
+                # ✅ Convert camera image
+                image = Image.open(camera_image)
+                image_np = np.array(image)
+
+                # ✅ Run analysis
+                analysis, processed_image = detect_stress(image_np)
+
+                # Encode image
+                if processed_image is not None:
+                    _, buffer = cv2.imencode('.jpg', processed_image)
+                    analysis["image"] = base64.b64encode(buffer).decode("utf-8")
+
+                # Store
+                st.session_state["emotion_data"].append(analysis)
+
+                # Display
+                with analysis_container:
+                    cols = st.columns([2, 3])
+
+                    # Image
+                    with cols[0]:
+                        if "image" in analysis:
+                            image_data = base64.b64decode(analysis["image"])
+                            image_array = np.frombuffer(image_data, np.uint8)
+                            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                            st.image(image, caption=f"Analysis {i+1}", use_container_width=True)
+                        else:
+                            st.warning("No image captured")
+
+                    # Data
+                    with cols[1]:
+                        st.write(f"### Analysis {i+1}")
+                        st.write(f"**Emotion:** {analysis['emotion']}")
+                        st.write(f"**Stress:** {analysis['stress_level']}")
+
+                        if analysis['stress_level'] == "High":
+                            st.error("High stress")
+                        elif analysis['stress_level'] == "Medium":
+                            st.warning("Medium stress")
+                        else:
+                            st.success("Relaxed")
+
+                # Save to Firebase
+                try:
+                    selected_name = st.session_state["current_profile"]["name"]
+                    db.collection("stress_analysis")\
+                        .document(selected_name)\
+                        .collection("timeline")\
+                        .document(str(analysis["timestamp"]))\
+                        .set(analysis)
+                except Exception as e:
+                    st.error(f"Firebase error: {str(e)}")
+
+                time.sleep(2)
+
+            st.success("Analysis complete! Go to Video Analysis page.")
+
+        except Exception as e:
+            st.error(f"Error during analysis: {str(e)}")
+
+        finally:
+            progress_bar.empty()
 
 # Analysis Page Content
 elif st.session_state["page"] == "analysis":
