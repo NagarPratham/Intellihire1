@@ -274,13 +274,29 @@ def detect_stress(image):
         return {"timestamp": int(time.time()), "emotion": "unknown", "stress_level": "Unknown", "stress_value": 0, "error": str(e)}, None
 
 def capture_and_analyze_stress():
+    # ❌ Cloud doesn't support screenshots
     if pyautogui is None:
-        st.error("Screenshot not supported in cloud environment")
-        return
+        st.warning("Using fallback image (no screen access in cloud)")
 
-    screenshot = pyautogui.screenshot()
-    screenshot = np.array(screenshot)
-    screenshot_rgb = cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB)
+        # Create dummy image (black frame)
+        dummy_image = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        # Run stress detection on dummy frame
+        analysis, processed_image = detect_stress(dummy_image)
+
+    else:
+        screenshot = pyautogui.screenshot()
+        screenshot = np.array(screenshot)
+        screenshot_rgb = cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB)
+
+        analysis, processed_image = detect_stress(screenshot_rgb)
+
+    # Encode image safely
+    if processed_image is not None:
+        _, buffer = cv2.imencode('.jpg', processed_image)
+        analysis["image"] = base64.b64encode(buffer).decode("utf-8")
+
+    return analysis
     
     # Convert to grayscale for processing
     gray = cv2.cvtColor(screenshot_rgb, cv2.COLOR_RGB2GRAY)
